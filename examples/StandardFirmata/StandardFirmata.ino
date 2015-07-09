@@ -23,16 +23,35 @@
   Last updated by Jeff Hoefs: April 11, 2015
 */
 
-#include <Servo.h>
-#include <Wire.h>
-#include <Firmata.h>
+#define ARDUINO 154
 
-#define I2C_WRITE                   B00000000
-#define I2C_READ                    B00001000
-#define I2C_READ_CONTINUOUSLY       B00010000
-#define I2C_STOP_READING            B00011000
-#define I2C_READ_WRITE_MODE_MASK    B00011000
-#define I2C_10BIT_ADDRESS_MODE_MASK B00100000
+/* Includes ------------------------------------------------------------------*/  
+#include "application.h"
+
+/* Function prototypes -------------------------------------------------------*/
+void readAndReportData(byte address, int theRegister, byte numBytes);
+void outputPort(byte portNumber, byte portValue, byte forceSend);
+void checkDigitalInputs(void);
+void setPinModeCallback(byte pin, int mode);
+void analogWriteCallback(byte pin, int value);
+void digitalWriteCallback(byte port, int value);
+void reportAnalogCallback(byte analogPin, int value);
+void reportDigitalCallback(byte port, int value);
+void sysexCallback(byte command, byte argc, byte *argv);
+void enableI2CPins();
+void disableI2CPins();
+void systemResetCallback();
+
+SYSTEM_MODE(AUTOMATIC);
+
+#include "Firmata.h"
+
+#define I2C_WRITE                   0x00
+#define I2C_READ                    0x08
+#define I2C_READ_CONTINUOUSLY       0x10
+#define I2C_STOP_READING            0x18
+#define I2C_READ_WRITE_MODE_MASK    0x18
+#define I2C_10BIT_ADDRESS_MODE_MASK 0x20
 #define MAX_QUERIES                 8
 #define REGISTER_NOT_SPECIFIED      -1
 
@@ -403,6 +422,7 @@ void sysexCallback(byte command, byte argc, byte *argv)
 
   switch (command) {
     case I2C_REQUEST:
+    {
       mode = argv[1] & I2C_READ_WRITE_MODE_MASK;
       if (argv[1] & I2C_10BIT_ADDRESS_MODE_MASK) {
         Firmata.sendString("10-bit addressing not supported");
@@ -412,8 +432,11 @@ void sysexCallback(byte command, byte argc, byte *argv)
         slaveAddress = argv[0];
       }
 
+      byte queryIndexToSkip = 0; // tripping -Wmaybe-uninitialized, is 0 a sane default
+
       switch (mode) {
         case I2C_WRITE:
+        {
           Wire.beginTransmission(slaveAddress);
           for (byte i = 2; i < argc; i += 2) {
             data = argv[i] + (argv[i + 1] << 7);
@@ -422,7 +445,9 @@ void sysexCallback(byte command, byte argc, byte *argv)
           Wire.endTransmission();
           delayMicroseconds(70);
           break;
+        }
         case I2C_READ:
+        {
           if (argc == 6) {
             // a slave register is specified
             slaveRegister = argv[2] + (argv[3] << 7);
@@ -435,7 +460,9 @@ void sysexCallback(byte command, byte argc, byte *argv)
           }
           readAndReportData(slaveAddress, (int)slaveRegister, data);
           break;
+        }
         case I2C_READ_CONTINUOUSLY:
+        {
           if ((queryIndex + 1) >= MAX_QUERIES) {
             // too many queries, just ignore
             Firmata.sendString("too many queries");
@@ -456,8 +483,9 @@ void sysexCallback(byte command, byte argc, byte *argv)
           query[queryIndex].reg = slaveRegister;
           query[queryIndex].bytes = data;
           break;
+        }
         case I2C_STOP_READING:
-          byte queryIndexToSkip;
+        {
           // if read continuous mode is enabled for only 1 i2c device, disable
           // read continuous reporting for that device
           if (queryIndex <= 0) {
@@ -483,11 +511,16 @@ void sysexCallback(byte command, byte argc, byte *argv)
             queryIndex--;
           }
           break;
+        }
         default:
+        {
           break;
+        }
       }
       break;
+    }
     case I2C_CONFIG:
+    {
       delayTime = (argv[0] + (argv[1] << 7));
 
       if (delayTime > 0) {
@@ -499,7 +532,9 @@ void sysexCallback(byte command, byte argc, byte *argv)
       }
 
       break;
+    }
     case SERVO_CONFIG:
+    {
       if (argc > 4) {
         // these vars are here for clarity, they'll optimized away by the compiler
         byte pin = argv[0];
@@ -515,7 +550,9 @@ void sysexCallback(byte command, byte argc, byte *argv)
         }
       }
       break;
+    }
     case SAMPLING_INTERVAL:
+    {
       if (argc > 1) {
         samplingInterval = argv[0] + (argv[1] << 7);
         if (samplingInterval < MINIMUM_SAMPLING_INTERVAL) {
@@ -525,7 +562,9 @@ void sysexCallback(byte command, byte argc, byte *argv)
         //Firmata.sendString("Not enough data");
       }
       break;
+    }
     case EXTENDED_ANALOG:
+    {
       if (argc > 1) {
         int val = argv[1];
         if (argc > 2) val |= (argv[2] << 7);
@@ -533,7 +572,9 @@ void sysexCallback(byte command, byte argc, byte *argv)
         analogWriteCallback(argv[0], val);
       }
       break;
+    }
     case CAPABILITY_QUERY:
+    {
       Firmata.write(START_SYSEX);
       Firmata.write(CAPABILITY_RESPONSE);
       for (byte pin = 0; pin < TOTAL_PINS; pin++) {
@@ -563,7 +604,9 @@ void sysexCallback(byte command, byte argc, byte *argv)
       }
       Firmata.write(END_SYSEX);
       break;
+    }
     case PIN_STATE_QUERY:
+    {
       if (argc > 0) {
         byte pin = argv[0];
         Firmata.write(START_SYSEX);
@@ -578,7 +621,9 @@ void sysexCallback(byte command, byte argc, byte *argv)
         Firmata.write(END_SYSEX);
       }
       break;
+    }
     case ANALOG_MAPPING_QUERY:
+    {
       Firmata.write(START_SYSEX);
       Firmata.write(ANALOG_MAPPING_RESPONSE);
       for (byte pin = 0; pin < TOTAL_PINS; pin++) {
@@ -586,6 +631,7 @@ void sysexCallback(byte command, byte argc, byte *argv)
       }
       Firmata.write(END_SYSEX);
       break;
+    }
   }
 }
 
